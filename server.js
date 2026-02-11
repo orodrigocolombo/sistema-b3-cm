@@ -16,22 +16,22 @@ function getRequiredEnv(name) {
   return v;
 }
 
-// ✅ mTLS com CERT + KEY (evita P12/PFX)
+// ===== mTLS usando CERT + KEY =====
 function createHttpsAgent() {
   const certB64 = getRequiredEnv("B3_CERT_BASE64").replace(/\s+/g, "");
   const keyB64 = getRequiredEnv("B3_KEY_BASE64").replace(/\s+/g, "");
 
-  const cert = Buffer.from(certB64, "base64"); // bytes do .cer
-  const key = Buffer.from(keyB64, "base64");   // bytes do .key
+  const cert = Buffer.from(certB64, "base64");
+  const key = Buffer.from(keyB64, "base64");
 
   return new https.Agent({
     cert,
     key,
-    rejectUnauthorized: false, // homologação
+    rejectUnauthorized: false, // ambiente CERT
   });
 }
 
-// ✅ OAuth2 token (Microsoft/Azure) — não precisa de mTLS
+// ===== OAuth2 Azure =====
 async function getAccessToken() {
   const tokenUrl = getRequiredEnv("B3_TOKEN_URL");
   const clientId = getRequiredEnv("B3_CLIENT_ID");
@@ -51,39 +51,72 @@ async function getAccessToken() {
   });
 
   if (!resp.data?.access_token) {
-    throw new Error("Token não retornou access_token. Verifique client_id/secret/scope.");
+    throw new Error("Token não retornou access_token.");
   }
+
   return resp.data.access_token;
 }
 
-app.get("/health", (req, res) => res.json({ ok: true }));
+// ===== Health básico =====
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
 
+// ===== Teste B3 =====
 app.get("/api/b3/test", async (req, res) => {
   try {
     const baseUrl = getRequiredEnv("B3_BASE_URL");
-
     const token = await getAccessToken();
     const httpsAgent = createHttpsAgent();
 
-    const health = await axios.get(`${baseUrl}/api/acesso/healthcheck`, {
-      httpsAgent,
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 30000,
-    });
+    const health = await axios.get(
+      `${baseUrl}/api/acesso/healthcheck`,
+      {
+        httpsAgent,
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 30000,
+      }
+    );
 
     res.json({
       success: true,
-      message: "Token OK + mTLS OK (healthcheck passou)",
+      message: "Token OK + mTLS OK",
       healthcheck: health.data,
     });
-  } catch (err) {
-    const status = err?.response?.status;
-    const detail = err?.response?.data || err?.message || String(err);
 
+  } catch (err) {
     res.status(500).json({
       success: false,
-      status,
-      detail,
+      status: err?.response?.status,
+      detail: err?.response?.data || err?.message || String(err),
+    });
+  }
+});
+
+// ===== Diagnóstico do Token =====
+app.get("/api/b3/token-info", async (req, res) => {
+  try {
+    const token = await getAccessToken();
+    const parts = token.split(".");
+    const payload = JSON.parse(
+      Buffer.from(parts[1], "base64").toString("utf8")
+    );
+
+    res.json({
+      ok: true,
+      aud: payload.aud,
+      iss: payload.iss,
+      roles: payload.roles || null,
+      scp: payload.scp || null,
+      appid: payload.appid || null,
+      tid: payload.tid || null,
+      exp: payload.exp || null,
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      detail: err?.response?.data || err?.message || String(err),
     });
   }
 });
