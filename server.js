@@ -16,22 +16,22 @@ function getRequiredEnv(name) {
   return v;
 }
 
-// ✅ cria agent só quando precisar (evita crash no boot)
+// ✅ mTLS com CERT + KEY (evita P12/PFX)
 function createHttpsAgent() {
-  const base64 = getRequiredEnv("B3_P12_BASE64");
-  const pass = getRequiredEnv("B3_P12_PASSWORD");
+  const certB64 = getRequiredEnv("B3_CERT_BASE64").replace(/\s+/g, "");
+  const keyB64 = getRequiredEnv("B3_KEY_BASE64").replace(/\s+/g, "");
 
-  // remove espaços/linhas (às vezes colagem no Railway quebra)
-  const cleaned = base64.replace(/\s+/g, "");
-  const p12Buffer = Buffer.from(cleaned, "base64");
+  const cert = Buffer.from(certB64, "base64"); // bytes do .cer
+  const key = Buffer.from(keyB64, "base64");   // bytes do .key
 
   return new https.Agent({
-    pfx: p12Buffer,
-    passphrase: pass,
-    rejectUnauthorized: false,
+    cert,
+    key,
+    rejectUnauthorized: false, // homologação
   });
 }
 
+// ✅ OAuth2 token (Microsoft/Azure) — não precisa de mTLS
 async function getAccessToken() {
   const tokenUrl = getRequiredEnv("B3_TOKEN_URL");
   const clientId = getRequiredEnv("B3_CLIENT_ID");
