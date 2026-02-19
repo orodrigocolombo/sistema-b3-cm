@@ -45,43 +45,54 @@ async function getAccessToken() {
 
   const resp = await axios.post(tokenUrl, body, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    timeout: 30000,
   });
 
+  if (!resp.data?.access_token) throw new Error("Token não retornou access_token.");
   return resp.data.access_token;
 }
 
-app.get("/health", (req, res) => {
-  res.json({ ok: true });
-});
+app.get("/health", (req, res) => res.json({ ok: true }));
 
-// 🔥 NOVO ENDPOINT GUIA
+// ✅ GUIA - conforme Swagger: /api/updated-product/v1/investors
 app.get("/api/b3/guia", async (req, res) => {
   try {
     const baseUrl = getRequiredEnv("B3_BASE_URL");
+    const product = req.query.product;
+    const referenceStartDate = req.query.referenceStartDate;
+    const referenceEndDate = req.query.referenceEndDate;
+    const page = req.query.page;
+
+    if (!product || !referenceStartDate) {
+      return res.status(400).json({
+        success: false,
+        detail: "Parâmetros obrigatórios: product e referenceStartDate (YYYY-MM-DD).",
+      });
+    }
+
     const token = await getAccessToken();
     const httpsAgent = createHttpsAgent();
 
-    const response = await axios.get(
-      `${baseUrl}/api/guia`,
-      {
-        httpsAgent,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/json",
-        },
-      }
-    );
+    const url = `${baseUrl}/api/updated-product/v1/investors`;
 
-    res.json({
-      success: true,
-      data: response.data,
+    const resp = await axios.get(url, {
+      httpsAgent,
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      params: {
+        product,
+        referenceStartDate,
+        ...(referenceEndDate ? { referenceEndDate } : {}),
+        ...(page ? { page } : {}),
+      },
+      timeout: 30000,
     });
 
+    res.json({ success: true, data: resp.data });
   } catch (err) {
     res.status(500).json({
       success: false,
       status: err?.response?.status,
-      detail: err?.response?.data || err.message,
+      detail: err?.response?.data || err?.message || String(err),
     });
   }
 });
