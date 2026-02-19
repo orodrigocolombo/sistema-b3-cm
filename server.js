@@ -16,7 +16,6 @@ function getRequiredEnv(name) {
   return v;
 }
 
-// ===== mTLS usando CERT + KEY =====
 function createHttpsAgent() {
   const certB64 = getRequiredEnv("B3_CERT_BASE64").replace(/\s+/g, "");
   const keyB64 = getRequiredEnv("B3_KEY_BASE64").replace(/\s+/g, "");
@@ -27,11 +26,10 @@ function createHttpsAgent() {
   return new https.Agent({
     cert,
     key,
-    rejectUnauthorized: false, // ambiente CERT
+    rejectUnauthorized: false,
   });
 }
 
-// ===== OAuth2 Azure =====
 async function getAccessToken() {
   const tokenUrl = getRequiredEnv("B3_TOKEN_URL");
   const clientId = getRequiredEnv("B3_CLIENT_ID");
@@ -47,76 +45,43 @@ async function getAccessToken() {
 
   const resp = await axios.post(tokenUrl, body, {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    timeout: 30000,
   });
-
-  if (!resp.data?.access_token) {
-    throw new Error("Token não retornou access_token.");
-  }
 
   return resp.data.access_token;
 }
 
-// ===== Health básico =====
 app.get("/health", (req, res) => {
   res.json({ ok: true });
 });
 
-// ===== Teste B3 =====
-app.get("/api/b3/test", async (req, res) => {
+// 🔥 NOVO ENDPOINT GUIA
+app.get("/api/b3/guia", async (req, res) => {
   try {
     const baseUrl = getRequiredEnv("B3_BASE_URL");
     const token = await getAccessToken();
     const httpsAgent = createHttpsAgent();
 
-    const health = await axios.get(
-      `${baseUrl}/api/acesso/healthcheck`,
+    const response = await axios.get(
+      `${baseUrl}/api/guia`,
       {
         httpsAgent,
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 30000,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
       }
     );
 
     res.json({
       success: true,
-      message: "Token OK + mTLS OK",
-      healthcheck: health.data,
+      data: response.data,
     });
 
   } catch (err) {
     res.status(500).json({
       success: false,
       status: err?.response?.status,
-      detail: err?.response?.data || err?.message || String(err),
-    });
-  }
-});
-
-// ===== Diagnóstico do Token =====
-app.get("/api/b3/token-info", async (req, res) => {
-  try {
-    const token = await getAccessToken();
-    const parts = token.split(".");
-    const payload = JSON.parse(
-      Buffer.from(parts[1], "base64").toString("utf8")
-    );
-
-    res.json({
-      ok: true,
-      aud: payload.aud,
-      iss: payload.iss,
-      roles: payload.roles || null,
-      scp: payload.scp || null,
-      appid: payload.appid || null,
-      tid: payload.tid || null,
-      exp: payload.exp || null,
-    });
-
-  } catch (err) {
-    res.status(500).json({
-      ok: false,
-      detail: err?.response?.data || err?.message || String(err),
+      detail: err?.response?.data || err.message,
     });
   }
 });
