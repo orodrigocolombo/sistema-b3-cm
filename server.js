@@ -12,12 +12,13 @@ const PORT = process.env.PORT || 3000;
 
 function getRequiredEnv(name) {
   const v = process.env[name];
-  if (!v) throw new Error(`Faltando variável ${name}.`);
+  if (!v) {
+    throw new Error(`Faltando variável de ambiente: ${name}`);
+  }
   return v;
 }
 
 function createHttpsAgent() {
-  // Cert/Key do pacote (base64) já salvos no Railway
   const certB64 = getRequiredEnv("B3_CERT_BASE64").replace(/\s+/g, "");
   const keyB64 = getRequiredEnv("B3_KEY_BASE64").replace(/\s+/g, "");
 
@@ -27,7 +28,7 @@ function createHttpsAgent() {
   return new https.Agent({
     cert,
     key,
-    rejectUnauthorized: false,
+    rejectUnauthorized: false
   });
 }
 
@@ -41,24 +42,30 @@ async function getAccessToken() {
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope: scope,
+    scope: scope
   });
 
-  const resp = await axios.post(tokenUrl, body, {
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    timeout: 30000,
+  const response = await axios.post(tokenUrl, body, {
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    timeout: 20000
   });
 
-  if (!resp.data?.access_token) throw new Error("Token não retornou access_token.");
-  return resp.data.access_token;
+  if (!response.data?.access_token) {
+    throw new Error("Token não retornou access_token");
+  }
+
+  return response.data.access_token;
 }
 
-app.get("/health", (req, res) => res.json({ ok: true }));
+app.get("/health", (req, res) => {
+  res.json({ ok: true });
+});
 
-/**
- * ✅ GUIA (como já fizemos)
- * GET /api/b3/guia?product=AssetsTrading&referenceStartDate=2026-02-01&referenceEndDate=2026-02-10&page=1
- */
+/* ===========================
+   GUIA - INVESTORS
+   =========================== */
 app.get("/api/b3/guia", async (req, res) => {
   try {
     const baseUrl = getRequiredEnv("B3_BASE_URL");
@@ -70,7 +77,7 @@ app.get("/api/b3/guia", async (req, res) => {
     if (!product || !referenceStartDate) {
       return res.status(400).json({
         success: false,
-        detail: "Parâmetros obrigatórios: product e referenceStartDate (YYYY-MM-DD).",
+        detail: "Informe product e referenceStartDate (YYYY-MM-DD)."
       });
     }
 
@@ -79,38 +86,38 @@ app.get("/api/b3/guia", async (req, res) => {
 
     const url = `${baseUrl}/api/updated-product/v1/investors`;
 
-    const resp = await axios.get(url, {
+    const response = await axios.get(url, {
       httpsAgent,
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json"
+      },
       params: {
         product,
         referenceStartDate,
         ...(referenceEndDate ? { referenceEndDate } : {}),
-        ...(page ? { page } : {}),
+        ...(page ? { page } : {})
       },
-      timeout: 30000,
+      timeout: 20000
     });
 
-    res.json({ success: true, data: resp.data });
-  } catch (err) {
-    res.status(500).json({
+    res.json({
+      success: true,
+      data: response.data
+    });
+
+  } catch (error) {
+    res.status(error?.response?.status || 500).json({
       success: false,
-      status: err?.response?.status,
-      detail: err?.response?.data || err?.message || String(err),
+      status: error?.response?.status,
+      detail: error?.response?.data || error.message
     });
   }
 });
 
-/**
- * ✅ AUTOSSERVIÇO (GERAR NOVO PACOTE/CERTIFICADO)
- * POST /api/b3/autosservico
- * body JSON:
- * {
- *   "nome": "Rodrigo Colombo",
- *   "documento": "34859712000182",
- *   "email": "contato@rodrigocolombo.com.br"
- * }
- */
+/* ===========================
+   AUTOSSERVIÇO - GERAR NOVO PACOTE
+   =========================== */
 app.post("/api/b3/autosservico", async (req, res) => {
   try {
     const nome = req.body?.nome;
@@ -120,36 +127,45 @@ app.post("/api/b3/autosservico", async (req, res) => {
     if (!nome || !documento || !email) {
       return res.status(400).json({
         success: false,
-        detail: "Campos obrigatórios no body: nome, documento (CNPJ só números), email.",
+        detail: "Campos obrigatórios: nome, documento (CNPJ só números), email."
       });
     }
 
-    const form = new URLSearchParams({ nome, documento, email });
-
-    // ✅ TENTATIVA 1 (conforme Swagger: HTTP)
-    const urlHttp = `http://apib3i-cert.b3.com.br/api/acesso/autosservico`;
-
-    const resp = await axios.post(urlHttp, form, {
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json, text/plain, */*",
-      },
-      timeout: 30000,
-      validateStatus: () => true,
-      maxRedirects: 5,
+    const form = new URLSearchParams({
+      nome,
+      documento,
+      email
     });
 
-    return res.status(resp.status).json({
-      success: resp.status >= 200 && resp.status < 300,
-      status: resp.status,
-      detail: resp.data,
-      usedUrl: urlHttp,
+    const httpsAgent = createHttpsAgent();
+
+    const response = await axios.post(
+      "https://apib3i-cert.b3.com.br:2443/api/acesso/autosservico",
+      form,
+      {
+        httpsAgent,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        timeout: 20000,
+        validateStatus: () => true
+      }
+    );
+
+    res.status(response.status).json({
+      success: response.status >= 200 && response.status < 300,
+      status: response.status,
+      detail: response.data
     });
-  } catch (err) {
-    return res.status(500).json({
+
+  } catch (error) {
+    res.status(500).json({
       success: false,
-      status: err?.response?.status,
-      detail: err?.response?.data || err?.message || String(err),
+      detail: error.message
     });
   }
+});
+
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
