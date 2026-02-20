@@ -124,38 +124,32 @@ app.post("/api/b3/autosservico", async (req, res) => {
       });
     }
 
-    const httpsAgent = createHttpsAgent();
+    const form = new URLSearchParams({ nome, documento, email });
 
-    // Host CERT + basepath /api/acesso + endpoint /autosservico
-    const url = `https://apib3i-cert.b3.com.br:2443/api/acesso/autosservico`;
+    // ✅ TENTATIVA 1 (conforme Swagger: HTTP)
+    const urlHttp = `http://apib3i-cert.b3.com.br/api/acesso/autosservico`;
 
-    const form = new URLSearchParams({
-      nome,
-      documento,
-      email,
-    });
-
-    const resp = await axios.post(url, form, {
-      httpsAgent,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    const resp = await axios.post(urlHttp, form, {
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json, text/plain, */*",
+      },
       timeout: 30000,
-      validateStatus: () => true, // pra devolver o status real da B3 mesmo se vier 4xx/5xx
+      validateStatus: () => true,
+      maxRedirects: 5,
     });
 
     return res.status(resp.status).json({
       success: resp.status >= 200 && resp.status < 300,
       status: resp.status,
       detail: resp.data,
+      usedUrl: urlHttp,
     });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       status: err?.response?.status,
       detail: err?.response?.data || err?.message || String(err),
     });
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
 });
